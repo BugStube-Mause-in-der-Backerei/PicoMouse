@@ -41,10 +41,10 @@ IMU::vector<int16_t> m_min;  // minimum magnetometer values, used for calibratio
 
 
 
-String inputs[] = { "forward" };
+String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_left", "forward", "turn_left", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_left", "forward", "turn_right", "forward"};
 int inputSize = sizeof(inputs) / sizeof(String);
 
-String inputsC[] = { "forward", "turnright", "forward", "turnright", "forward", "turnright", "forward", "turnright" };
+String inputsC[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_right", "forward", "turn_right" };
 int inputSizeC = sizeof(inputsC) / sizeof(String);
 
 void setup() {
@@ -70,14 +70,19 @@ void loop() {
     delay(2000);
     for (int i = 0; i < inputSize; i++) {
       handleInput(inputs[i]);
+      motors.setSpeeds(0, 0);
+      delay(200);
     }
   }
 
 
   if (buttonC.isPressed()) {
     delay(2000);
+    // moveForwardSimple();
     for (int i = 0; i < inputSizeC; i++) {
       handleInput(inputsC[i]);
+      motors.setSpeeds(0, 0);
+      delay(200);
     }
   }
 }
@@ -86,14 +91,13 @@ void handleInput(String input) {
   if (input.equalsIgnoreCase("forward")) {
     Serial.println("moveForward");
     moveForward();
-  } else if (input.equalsIgnoreCase("turnleft")) {
-    Serial.println("turnleft");
+  } else if (input.equalsIgnoreCase("turn_left")) {
+    Serial.println("turn_left");
     turn('l');
-  } else if (input.equalsIgnoreCase("turnright")) {
-    Serial.println("turnright");
+  } else if (input.equalsIgnoreCase("turn_right")) {
+    Serial.println("turn_right");
     turn('r');
   }
-  delay(50);
 }
 
 void turn(char dir) {
@@ -106,7 +110,6 @@ void turn(char dir) {
     motors.setSpeeds(turnSpeed, turnSpeedNeg);
   }
   delay(255);
-  motors.setSpeeds(0, 0);
 }
 
 void turnTwo(char dir) {
@@ -149,16 +152,30 @@ void turnTwo(char dir) {
   }
 }
 
+void moveForwardSimple(){
+  int speed = 80;
+  motors.setSpeeds(speed, speed);
+
+  delay(250);
+  motors.setSpeeds(0, 0);
+}
+
 void moveForward() {
   Sr = 0.0F;
-
+  countsRight = encoders.getCountsAndResetRight();
+  countsRight = 0;
+  prevRight = 0;
+  int speed = 80;
   while (!bumpSensors.leftIsPressed() && !bumpSensors.rightIsPressed()) {
     countsRight += encoders.getCountsAndResetRight();
 
     Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
 
     if (Sr < 16) {
-      motors.setSpeeds(wheelSpeed, wheelSpeed);
+       if(Sr > 13){ 
+        speed = 40; 
+      } 
+      motors.setSpeeds(speed, speed);
     } else {
       break;
     }
@@ -228,7 +245,7 @@ float averageHeading() {
 void selectStandard() {
   speedStraightLeft = 100;
   speedStraightRight = speedStraightLeft;
-  turnBaseSpeed = 40;
+  turnBaseSpeed = 20;
   driveTime = 1000;
 }
 
