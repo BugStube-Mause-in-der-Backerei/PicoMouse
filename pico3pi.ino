@@ -1,9 +1,10 @@
 #include <Pololu3piPlus2040.h>
+#include <Wire.h>
 
-#define CALIBRATION_SAMPLES 70  // Number of compass readings to take when calibrating
+#define CALIBRATION_SAMPLES 79  // Number of compass readings to take when calibrating
 
 // Allowed deviation (in degrees) relative to target angle that must be achieved before driving straight
-#define DEVIATION_THRESHOLD 1
+#define DEVIATION_THRESHOLD 10
 
 OLED display;
 Buzzer buzzer;
@@ -16,6 +17,8 @@ Motors motors;
 Encoders encoders;
 RGBLEDs leds;
 IMU imu;
+
+#include "TurnSensor.h"
 
 unsigned long currentMillis;
 unsigned long prevMillis;
@@ -30,6 +33,7 @@ const int WHEEL_CIRCUMFERENZCE = 10.0531;
 float Sl = 0.0F;
 float Sr = 0.0F;
 int wheelSpeed = 75;
+int16_t maxSpeed;
 
 uint16_t speedStraightLeft;  // Maximum motor speed when going straight; variable speed when turning
 uint16_t speedStraightRight;
@@ -41,10 +45,11 @@ IMU::vector<int16_t> m_min;  // minimum magnetometer values, used for calibratio
 
 
 
-String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_left", "forward", "turn_left", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_left", "forward", "turn_right", "forward"};
+String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_left", "forward", "turn_left", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_left", "forward", "turn_right", "forward" };
 int inputSize = sizeof(inputs) / sizeof(String);
 
-String inputsC[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_right", "forward", "turn_right" };
+// String inputsC[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_right", "forward", "turn_right" };
+String inputsC[] = { "turn_right", "turn_right", "turn_right", "turn_right" };
 int inputSizeC = sizeof(inputsC) / sizeof(String);
 
 void setup() {
@@ -53,11 +58,18 @@ void setup() {
 
   Serial.begin(9600);
   delay(1000);
-  buzzer.play("C32");
 
   bumpSensors.calibrate();
+
   // calibrateTurnSensor();
-  
+
+  turnSensorSetup();
+  turnSensorReset();
+
+  encoders.getCountsAndResetLeft();
+  encoders.getCountsAndResetRight();
+
+  buzzer.play("C32");
 }
 
 void loop() {
@@ -66,7 +78,6 @@ void loop() {
   bumpSensors.read();
   // put your main code here, to run repeatedly:
   if (buttonA.isPressed()) {
-    Serial.println("PRESSED A");
     delay(2000);
     for (int i = 0; i < inputSize; i++) {
       handleInput(inputs[i]);
@@ -78,7 +89,6 @@ void loop() {
 
   if (buttonC.isPressed()) {
     delay(2000);
-    // moveForwardSimple();
     for (int i = 0; i < inputSizeC; i++) {
       handleInput(inputsC[i]);
       motors.setSpeeds(0, 0);
@@ -93,66 +103,38 @@ void handleInput(String input) {
     moveForward();
   } else if (input.equalsIgnoreCase("turn_left")) {
     Serial.println("turn_left");
-    turn('l');
+    turnThree('l');
   } else if (input.equalsIgnoreCase("turn_right")) {
     Serial.println("turn_right");
-    turn('r');
+    turnThree('r');
   }
 }
 
-void turn(char dir) {
+void turnThree(char dir) {
   int turnSpeed = 80;
   int turnSpeedNeg = -80;
-
   if (dir == 'l') {
     motors.setSpeeds(turnSpeedNeg, turnSpeed);
   } else if (dir == 'r') {
     motors.setSpeeds(turnSpeed, turnSpeedNeg);
   }
-  delay(255);
-}
-
-void turnTwo(char dir) {
-  float heading, relative_heading;
-  int speed;
-  static float target_heading = 0;
-
-  // Heading is given in degrees away from the magnetic vector, increasing clockwise
-  heading = averageHeading();
-
-  // This gives us the relative heading with respect to the target angle
-  relative_heading = relativeHeading(heading, target_heading);
-
-  if (dir == 'l') {
-    target_heading = heading - 90;
-  } else if (dir == 'r') {
-    target_heading = heading + 90;
-  }
-
-  if (target_heading >= 360) {
-    target_heading -= 360;
-  }
-
-  if (target_heading < 0) {
-    target_heading += 360;
-  }
-
-  // If the 3pi+ has turned to the direction it wants to be pointing, go straight and then do another turn
-  while (target_heading > (heading + DEVIATION_THRESHOLD) || target_heading < (heading - DEVIATION_THRESHOLD)) {
-    speed = speedStraightLeft*relative_heading/180;
-
-    if (speed < 0)
-      speed -= turnBaseSpeed;
-    else
-      speed += turnBaseSpeed;
-
-    motors.setSpeeds(speed, -speed);
-    heading = averageHeading();
-    relative_heading = relativeHeading(heading, target_heading);
+  while (true) {
+    turnSensorUpdate();
+    int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
+    display.clear();
+    display.gotoXY(0, 0);
+    display.print(angle);
+    display.print(F("   "));
+    // if ((int32_t)turnAngle <= -turnAngle90 || (int32_t)turnAngle >= turnAngle90) {
+    if (angle <= (-90 + DEVIATION_THRESHOLD) || angle >= (90 - DEVIATION_THRESHOLD)) {
+      motors.setSpeeds(0, 0);
+      turnSensorReset();
+      break;
+    }
   }
 }
 
-void moveForwardSimple(){
+void moveForwardSimple() {
   int speed = 80;
   motors.setSpeeds(speed, speed);
 
@@ -172,9 +154,13 @@ void moveForward() {
     Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
 
     if (Sr < 16) {
-       if(Sr > 13){ 
-        speed = 40; 
-      } 
+      if (Sr > 14) {
+        speed = 25;
+      } else if (Sr > 12) {
+        speed = 40;
+      } else if (Sr > 10) {
+        speed = 60;
+      }
       motors.setSpeeds(speed, speed);
     } else {
       break;
@@ -245,8 +231,9 @@ float averageHeading() {
 void selectStandard() {
   speedStraightLeft = 100;
   speedStraightRight = speedStraightLeft;
-  turnBaseSpeed = 20;
+  turnBaseSpeed = 30;
   driveTime = 1000;
+  maxSpeed = 200;
 }
 
 // void selectTurtle() {
@@ -256,7 +243,7 @@ void selectStandard() {
 //   driveTime = 2000;
 // }
 
-void calibrateTurnSensor(){
+void calibrateTurnSensor() {
   IMU::vector<int16_t> running_min = { 32767, 32767, 32767 }, running_max = { -32767, -32767, -32767 };
   unsigned char index;
 
@@ -298,5 +285,64 @@ void calibrateTurnSensor(){
   m_max.y = running_max.y;
   m_min.x = running_min.x;
   m_min.y = running_min.y;
+}
 
+
+void turn(char dir) {
+  int turnSpeed = 80;
+  int turnSpeedNeg = -80;
+
+  if (dir == 'l') {
+    motors.setSpeeds(turnSpeedNeg, turnSpeed);
+  } else if (dir == 'r') {
+    motors.setSpeeds(turnSpeed, turnSpeedNeg);
+  }
+  delay(255);
+}
+
+void turnTwo(char dir) {
+  float heading, relative_heading;
+  int speed;
+  static float target_heading = 0;
+
+  // Heading is given in degrees away from the magnetic vector, increasing clockwise
+  heading = averageHeading();
+
+  // This gives us the relative heading with respect to the target angle
+  relative_heading = relativeHeading(heading, target_heading);
+
+  if (dir == 'l') {
+    target_heading = heading - 90;
+  } else if (dir == 'r') {
+    target_heading = heading + 90;
+  }
+
+  if (target_heading >= 360) {
+    target_heading -= 360;
+  }
+
+  if (target_heading < 0) {
+    target_heading += 360;
+  }
+
+  // If the 3pi+ has turned to the direction it wants to be pointing, go straight and then do another turn
+  // while (heading >= (target_heading + DEVIATION_THRESHOLD) || heading <= (target_heading - DEVIATION_THRESHOLD)) {
+  while (relative_heading > DEVIATION_THRESHOLD || relative_heading < -DEVIATION_THRESHOLD) {
+    speed = speedStraightLeft * relative_heading / 180;
+
+    if (speed < 0)
+      speed -= turnBaseSpeed;
+    else
+      speed += turnBaseSpeed;
+
+    // motors.setSpeeds(speed, -speed);
+    heading = averageHeading();
+    relative_heading = relativeHeading(heading, target_heading);
+
+    display.clear();
+    display.gotoXY(0, 0);
+    display.print(heading);
+    display.print(F("   "));
+  }
+  motors.setSpeeds(0, 0);
 }
