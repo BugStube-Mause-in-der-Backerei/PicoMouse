@@ -1,3 +1,4 @@
+#include <OPT3101.h>
 #include <Pololu3piPlus2040.h>
 #include <Wire.h>
 
@@ -6,6 +7,7 @@
 // Allowed deviation (in degrees) relative to target angle that must be achieved before driving straight
 #define DEVIATION_THRESHOLD 10
 
+OPT3101 sensor;
 OLED display;
 Buzzer buzzer;
 ButtonA buttonA;
@@ -49,7 +51,7 @@ String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward",
 int inputSize = sizeof(inputs) / sizeof(String);
 
 // String inputsC[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_right", "forward", "turn_right" };
-String inputsC[] = { "turn_right", "turn_right", "turn_right", "turn_right" };
+String inputsC[] = { "forward", "forward", "forward", "forward" };
 int inputSizeC = sizeof(inputsC) / sizeof(String);
 
 void setup() {
@@ -57,6 +59,7 @@ void setup() {
   // motors.flipRightMotor(true);
 
   Serial.begin(9600);
+  Wire.begin();
   delay(1000);
 
   bumpSensors.calibrate();
@@ -66,6 +69,14 @@ void setup() {
   turnSensorSetup();
   turnSensorReset();
 
+  sensor.init();
+   if (sensor.getLastError()) {
+    Serial.print(F("Failed to initialize OPT3101: error "));
+    Serial.println(sensor.getLastError());
+  }
+  sensor.setFrameTiming(256);
+  sensor.setBrightness(OPT3101Brightness::Adaptive);
+
   encoders.getCountsAndResetLeft();
   encoders.getCountsAndResetRight();
 
@@ -73,10 +84,8 @@ void setup() {
 }
 
 void loop() {
-  // Serial.println("Working...");
   motors.setSpeeds(0, 0);
   bumpSensors.read();
-  // put your main code here, to run repeatedly:
   if (buttonA.isPressed()) {
     delay(2000);
     for (int i = 0; i < inputSize; i++) {
@@ -143,32 +152,42 @@ void moveForwardSimple() {
 }
 
 void moveForward() {
+  sensor.setChannel(1);
   Sr = 0.0F;
   countsRight = encoders.getCountsAndResetRight();
   countsRight = 0;
   prevRight = 0;
   int speed = 80;
-  while (!bumpSensors.leftIsPressed() && !bumpSensors.rightIsPressed()) {
+  while (true) {
+    sensor.sample();
+    
+    if(sensor.distanceMillimeters<120){
+      break;
+    }
+
     countsRight += encoders.getCountsAndResetRight();
 
     Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
 
     if (Sr < 16) {
-      if (Sr > 14) {
-        speed = 25;
-      } else if (Sr > 12) {
-        speed = 40;
-      } else if (Sr > 10) {
-        speed = 60;
+      if (Sr > 5) {
+        speed = 80 - (Sr * 3.5);
       }
-      motors.setSpeeds(speed, speed);
+      if(speed < 25){
+        speed = 25;
+      }
+      display.clear();
+      display.gotoXY(0, 0);
+      display.print(speed);
+      display.print(F("   "));
+      motors.setSpeeds(speed + (speed / 20), speed);
     } else {
       break;
     }
 
     prevRight = countsRight;
-    bumpSensors.read();
   }
+  motors.setSpeeds(0, 0);
 }
 
 // Converts x and y components of a vector to a heading in degrees.

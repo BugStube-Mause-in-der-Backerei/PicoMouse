@@ -91,7 +91,6 @@ The digital zero-rate level of the gyro can be as high as
 that. */
 void turnSensorSetup()
 {
-  Wire.begin();
   imu.init();
   imu.enableDefault();
   imu.configureForTurnSensing();
