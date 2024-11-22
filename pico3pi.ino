@@ -5,7 +5,7 @@
 #define CALIBRATION_SAMPLES 79  // Number of compass readings to take when calibrating
 
 // Allowed deviation (in degrees) relative to target angle that must be achieved before driving straight
-#define DEVIATION_THRESHOLD 10
+#define DEVIATION_THRESHOLD 3
 
 OPT3101 sensor;
 OLED display;
@@ -22,42 +22,31 @@ IMU imu;
 
 #include "TurnSensor.h"
 
-unsigned long currentMillis;
-unsigned long prevMillis;
-const unsigned long PERIOD = 20;
-long countsLeft = 0;
 long countsRight = 0;
-long prevLeft = 0;
 long prevRight = 0;
 const int CLICKS_PER_ROTATION = 12;
 const float GEAR_RATIO = 29.86F;
 const int WHEEL_CIRCUMFERENZCE = 10.0531;
-float Sl = 0.0F;
 float Sr = 0.0F;
-int wheelSpeed = 75;
-int16_t maxSpeed;
+int headingDirection = 0;
 
 uint16_t speedStraightLeft;  // Maximum motor speed when going straight; variable speed when turning
 uint16_t speedStraightRight;
 uint16_t turnBaseSpeed;  // Base speed when turning (added to variable speed)
-uint16_t driveTime;      // Time to drive straight, in milliseconds
 
 IMU::vector<int16_t> m_max;  // maximum magnetometer values, used for calibration
 IMU::vector<int16_t> m_min;  // minimum magnetometer values, used for calibration
 
 
-
-String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_left", "forward", "turn_left", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "forward", "turn_left", "forward", "turn_right", "forward" };
+// String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "forward", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward" };
+String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "forward", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "turn_right", "forward", "turn_left", "forward", "turn_right", "forward", "forward", "forward" };
 int inputSize = sizeof(inputs) / sizeof(String);
 
 // String inputsC[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_right", "forward", "turn_right" };
-String inputsC[] = { "forward", "forward", "forward", "forward" };
+String inputsC[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left" };
 int inputSizeC = sizeof(inputsC) / sizeof(String);
 
 void setup() {
-  // motors.flipLeftMotor(true);
-  // motors.flipRightMotor(true);
-
   Serial.begin(9600);
   Wire.begin();
   delay(1000);
@@ -70,7 +59,7 @@ void setup() {
   turnSensorReset();
 
   sensor.init();
-   if (sensor.getLastError()) {
+  if (sensor.getLastError()) {
     Serial.print(F("Failed to initialize OPT3101: error "));
     Serial.println(sensor.getLastError());
   }
@@ -91,7 +80,7 @@ void loop() {
     for (int i = 0; i < inputSize; i++) {
       handleInput(inputs[i]);
       motors.setSpeeds(0, 0);
-      delay(200);
+      delay(100);
     }
   }
 
@@ -101,8 +90,9 @@ void loop() {
     for (int i = 0; i < inputSizeC; i++) {
       handleInput(inputsC[i]);
       motors.setSpeeds(0, 0);
-      delay(200);
+      delay(500);
     }
+    // turnResist();
   }
 }
 
@@ -112,75 +102,160 @@ void handleInput(String input) {
     moveForward();
   } else if (input.equalsIgnoreCase("turn_left")) {
     Serial.println("turn_left");
-    turnThree('l');
+    turn('l');
   } else if (input.equalsIgnoreCase("turn_right")) {
     Serial.println("turn_right");
-    turnThree('r');
+    turn('r');
   }
 }
 
-void turnThree(char dir) {
+void turn(char dir) {
   int turnSpeed = 80;
-  int turnSpeedNeg = -80;
+  int speed = 0;
   if (dir == 'l') {
-    motors.setSpeeds(turnSpeedNeg, turnSpeed);
+    motors.setSpeeds(-turnSpeed, turnSpeed);
+    headingDirection += 90;
   } else if (dir == 'r') {
-    motors.setSpeeds(turnSpeed, turnSpeedNeg);
+    motors.setSpeeds(turnSpeed, -turnSpeed);
+    headingDirection -= 90;
   }
+
+  if (headingDirection < 0) {
+    headingDirection += 360;
+  } else if (headingDirection >= 360) {
+    headingDirection -= 360;
+  }
+  
   while (true) {
     turnSensorUpdate();
     int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
+    if(angle < 0){
+      angle += 360;
+    }
+
+    int diff = headingDirection - angle;
+    int absDiff = abs(diff);
+    if(absDiff > 100){
+      absDiff = 360 - absDiff;
+    }
+    speed = turnSpeed * absDiff/180;
+    speed += 25;
+
+    if (dir == 'l') {
+      motors.setSpeeds(-speed, speed);
+    } else if (dir == 'r') {
+      motors.setSpeeds(speed, -speed);
+    }
+
+    int threshPos = headingDirection + DEVIATION_THRESHOLD;
+    if(threshPos<0){
+      threshPos +=360;
+    }
+
+    int threshNeg = headingDirection - DEVIATION_THRESHOLD;
+    if(threshPos<0){
+      threshPos +=360;
+    }
+
+    
+    
     display.clear();
     display.gotoXY(0, 0);
     display.print(angle);
-    display.print(F("   "));
-    // if ((int32_t)turnAngle <= -turnAngle90 || (int32_t)turnAngle >= turnAngle90) {
-    if (angle <= (-90 + DEVIATION_THRESHOLD) || angle >= (90 - DEVIATION_THRESHOLD)) {
+    display.print(", ");
+    display.print(headingDirection);
+    if (angle <= threshPos && angle >= threshNeg) {
       motors.setSpeeds(0, 0);
-      turnSensorReset();
       break;
     }
   }
 }
 
-void moveForwardSimple() {
-  int speed = 80;
-  motors.setSpeeds(speed, speed);
+void turnResist() {
+  while (true) {
+    turnSensorUpdate();
 
-  delay(250);
-  motors.setSpeeds(0, 0);
+    int32_t turnSpeed = -(int32_t)turnAngle / (turnAngle1 / 28)
+                        - turnRate / 40;
+
+    display.clear();
+    display.gotoXY(0, 0);
+    display.print(turnSpeed);
+    display.print(F("   "));
+    motors.setSpeeds(-turnSpeed, turnSpeed);
+  }
 }
 
 void moveForward() {
   sensor.setChannel(1);
+  sensor.sample();
+  if(sensor.distanceMillimeters < 80){
+    return;
+  }
+  sensor.startSample();
   Sr = 0.0F;
   countsRight = encoders.getCountsAndResetRight();
   countsRight = 0;
   prevRight = 0;
   int speed = 80;
   while (true) {
-    sensor.sample();
-    
-    if(sensor.distanceMillimeters<120){
-      break;
+    turnSensorUpdate();
+
+    if (sensor.isSampleDone()) {
+      sensor.readOutputRegs();
+      if(sensor.distanceMillimeters < 120){
+        break;
+      }
+      sensor.startSample();
     }
 
     countsRight += encoders.getCountsAndResetRight();
 
     Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
 
-    if (Sr < 16) {
+    
+    // int32_t turnSpeed = -(int32_t)turnAngle / (turnAngle1 / 28) - turnRate / 40;
+    int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
+    if(angle < 0){
+      angle += 360;
+    }
+
+    int diff = headingDirection - angle;
+    int absDiff = abs(diff);
+    if(absDiff > 100){
+      absDiff = 360 - absDiff;
+    }
+
+    int turnSpeed = speed * absDiff/20;
+    if (turnSpeed > 10) {
+      turnSpeed = 10;
+    }
+
+    display.clear();
+    display.gotoXY(0, 0);
+    display.print(turnSpeed);
+    display.print(",");
+    display.print(absDiff);
+    display.gotoXY(0, 1);
+    display.print(diff);
+    display.print(",");
+    display.print(angle);
+
+    if (Sr < 18) {
       if (Sr > 5) {
-        speed = 80 - (Sr * 3.5);
+        speed = 80 - (Sr * 3);
       }
-      if(speed < 25){
+      if (speed < 25) {
         speed = 25;
       }
-      display.clear();
-      display.gotoXY(0, 0);
-      display.print(speed);
-      display.print(F("   "));
-      motors.setSpeeds(speed + (speed / 20), speed);
+      if (diff > 0 || diff < -270) {
+        motors.setSpeeds(speed, speed + turnSpeed);
+      } else if (diff < 0) {
+        motors.setSpeeds(speed + turnSpeed, speed);
+      } else {
+        motors.setSpeeds(speed, speed);
+      }
+      // motors.setSpeeds(speed + speed/20, speed);
     } else {
       break;
     }
@@ -244,22 +319,18 @@ float averageHeading() {
 //   speedStraightLeft = 70;
 //   speedStraightRight = 80;
 //   turnBaseSpeed = 20;
-//   driveTime = 500;
 // }
 
 void selectStandard() {
   speedStraightLeft = 100;
   speedStraightRight = speedStraightLeft;
   turnBaseSpeed = 30;
-  driveTime = 1000;
-  maxSpeed = 200;
 }
 
 // void selectTurtle() {
 //   speedStraightLeft = 200;
 //   speedStraightRight = speedStraightLeft;
 //   turnBaseSpeed = 40;
-//   driveTime = 2000;
 // }
 
 void calibrateTurnSensor() {
@@ -307,17 +378,6 @@ void calibrateTurnSensor() {
 }
 
 
-void turn(char dir) {
-  int turnSpeed = 80;
-  int turnSpeedNeg = -80;
-
-  if (dir == 'l') {
-    motors.setSpeeds(turnSpeedNeg, turnSpeed);
-  } else if (dir == 'r') {
-    motors.setSpeeds(turnSpeed, turnSpeedNeg);
-  }
-  delay(255);
-}
 
 void turnTwo(char dir) {
   float heading, relative_heading;
