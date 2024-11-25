@@ -29,6 +29,8 @@ const float GEAR_RATIO = 29.86F;
 const int WHEEL_CIRCUMFERENZCE = 10.0531;
 float Sr = 0.0F;
 int headingDirection = 0;
+bool wallLeft = true;
+bool wallRight = true;
 
 uint16_t speedStraightLeft;  // Maximum motor speed when going straight; variable speed when turning
 uint16_t speedStraightRight;
@@ -129,20 +131,20 @@ void turn(char dir) {
   } else if (headingDirection >= 360) {
     headingDirection -= 360;
   }
-  
+
   while (true) {
     turnSensorUpdate();
     int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
-    if(angle < 0){
+    if (angle < 0) {
       angle += 360;
     }
 
     int diff = headingDirection - angle;
     int absDiff = abs(diff);
-    if(absDiff > 100){
+    if (absDiff > 100) {
       absDiff = 360 - absDiff;
     }
-    speed = turnSpeed * absDiff/180;
+    speed = turnSpeed * absDiff / 180;
     speed += 25;
 
     if (dir == 'l') {
@@ -152,17 +154,17 @@ void turn(char dir) {
     }
 
     int threshPos = headingDirection + DEVIATION_THRESHOLD;
-    if(threshPos<0){
-      threshPos +=360;
+    if (threshPos < 0) {
+      threshPos += 360;
     }
 
     int threshNeg = headingDirection - DEVIATION_THRESHOLD;
-    if(threshPos<0){
-      threshPos +=360;
+    if (threshPos < 0) {
+      threshPos += 360;
     }
 
-    
-    
+
+
     display.clear();
     display.gotoXY(0, 0);
     display.print(angle);
@@ -178,22 +180,42 @@ void turn(char dir) {
 void moveForward(bool forward) {
   sensor.setChannel(1);
   sensor.sample();
-  if(sensor.distanceMillimeters < 80){
+  if (sensor.distanceMillimeters < 80) {
     return;
   }
-  sensor.startSample();
+  for (int i = 0; i < 3; i++) {
+    sensor.setChannel(i);
+    sensor.startSample();
+  }
   Sr = 0.0F;
   countsRight = encoders.getCountsAndResetRight();
   countsRight = 0;
   prevRight = 0;
   int speed = 80;
+  wallRight = true;
+  wallLeft = true;
+
   while (true) {
     turnSensorUpdate();
-
+    sensor.nextChannel();
     if (sensor.isSampleDone()) {
       sensor.readOutputRegs();
-      if(sensor.distanceMillimeters < 80){
-        break;
+      switch (sensor.channelUsed) {
+        case 0:
+          if (wallLeft == true && sensor.distanceMillimeters > 200) {
+            wallLeft = false;
+          }
+          break;
+        case 1:
+          if (sensor.distanceMillimeters < 80) {
+            goto bailout;
+          }
+          break;
+        case 2:
+          if (wallRight == true && sensor.distanceMillimeters > 200) {
+            wallRight = false;
+          }
+          break;
       }
       sensor.startSample();
     }
@@ -202,20 +224,18 @@ void moveForward(bool forward) {
 
     Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
 
-    
-    // int32_t turnSpeed = -(int32_t)turnAngle / (turnAngle1 / 28) - turnRate / 40;
     int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
-    if(angle < 0){
+    if (angle < 0) {
       angle += 360;
     }
 
     int diff = headingDirection - angle;
     int absDiff = abs(diff);
-    if(absDiff > 100){
+    if (absDiff > 100) {
       absDiff = 360 - absDiff;
     }
 
-    int turnSpeed = speed * absDiff/20;
+    int turnSpeed = speed * absDiff / 20;
     if (turnSpeed > 10) {
       turnSpeed = 10;
     }
@@ -251,39 +271,50 @@ void moveForward(bool forward) {
 
     prevRight = countsRight;
   }
+bailout:
   motors.setSpeeds(0, 0);
 }
 
-int doBacktracking(){
-  int possibleWays[3];
+int doBacktracking() {
+  int possibleWays[] = { 0, 0, 0 };
   int possibleWaysSize = sizeof(possibleWays) / sizeof(int);
-  
-  //get possible ways
 
+  //get possible ways
+  sensor.setChannel(1);
+  sensor.sample();
+  if (sensor.distanceMillimeters > 200) {
+    possibleWays[1] = 1;
+  }
+  if (wallLeft) {
+    possibleWays[0] = 1;
+  }
+  if (wallRight) {
+    possibleWays[2] = 1;
+  }
 
   // TODO: some return function when maze is solved
-  if(1==0){
+  if (1 == 0) {
     return 1;
   }
 
-  for(int i = 0; i<possibleWaysSize; i++){
-    if(possibleWays[i]){
+  for (int i = 0; i < possibleWaysSize; i++) {
+    if (possibleWays[i]) {
       switch (i) {
-      case 0:
-        turn('l');
-        moveForward();
-        break;
-      case 1:
-        moveForward();
-        break;
-      case 2:
-        turn('r');
-        moveForward();
-        break;
+        case 0:
+          turn('l');
+          moveForward();
+          break;
+        case 1:
+          moveForward();
+          break;
+        case 2:
+          turn('r');
+          moveForward();
+          break;
       }
 
       int result = doBacktracking();
-      if(result == 1){
+      if (result == 1) {
         return 1;
       }
 
