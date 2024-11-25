@@ -46,6 +46,9 @@ int inputSize = sizeof(inputs) / sizeof(String);
 String inputsC[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left" };
 int inputSizeC = sizeof(inputsC) / sizeof(String);
 
+// method call to be able to define default parameters
+void moveForward(bool forward = true);
+
 void setup() {
   Serial.begin(9600);
   Wire.begin();
@@ -87,11 +90,12 @@ void loop() {
 
   if (buttonC.isPressed()) {
     delay(2000);
-    for (int i = 0; i < inputSizeC; i++) {
-      handleInput(inputsC[i]);
-      motors.setSpeeds(0, 0);
-      delay(500);
-    }
+    // for (int i = 0; i < inputSizeC; i++) {
+    //   handleInput(inputsC[i]);
+    //   motors.setSpeeds(0, 0);
+    //   delay(500);
+    // }
+    moveForward(false);
     // turnResist();
   }
 }
@@ -171,22 +175,7 @@ void turn(char dir) {
   }
 }
 
-void turnResist() {
-  while (true) {
-    turnSensorUpdate();
-
-    int32_t turnSpeed = -(int32_t)turnAngle / (turnAngle1 / 28)
-                        - turnRate / 40;
-
-    display.clear();
-    display.gotoXY(0, 0);
-    display.print(turnSpeed);
-    display.print(F("   "));
-    motors.setSpeeds(-turnSpeed, turnSpeed);
-  }
-}
-
-void moveForward() {
+void moveForward(bool forward) {
   sensor.setChannel(1);
   sensor.sample();
   if(sensor.distanceMillimeters < 80){
@@ -203,7 +192,7 @@ void moveForward() {
 
     if (sensor.isSampleDone()) {
       sensor.readOutputRegs();
-      if(sensor.distanceMillimeters < 120){
+      if(sensor.distanceMillimeters < 80){
         break;
       }
       sensor.startSample();
@@ -241,21 +230,21 @@ void moveForward() {
     display.print(",");
     display.print(angle);
 
-    if (Sr < 18) {
-      if (Sr > 5) {
-        speed = 80 - (Sr * 3);
+
+    if (Sr < 18 && Sr > -18) {
+      if (Sr > 5 || Sr < -5) {
+        speed = 80 - (abs(Sr) * 3);
       }
       if (speed < 25) {
         speed = 25;
       }
       if (diff > 0 || diff < -270) {
-        motors.setSpeeds(speed, speed + turnSpeed);
+        forward ? motors.setSpeeds(speed, speed + turnSpeed) : motors.setSpeeds(-speed - turnSpeed, -speed);
       } else if (diff < 0) {
-        motors.setSpeeds(speed + turnSpeed, speed);
+        forward ? motors.setSpeeds(speed + turnSpeed, speed) : motors.setSpeeds(-speed, -speed - turnSpeed);
       } else {
-        motors.setSpeeds(speed, speed);
+        forward ? motors.setSpeeds(speed, speed) : motors.setSpeeds(-speed, -speed);
       }
-      // motors.setSpeeds(speed + speed/20, speed);
     } else {
       break;
     }
@@ -263,6 +252,56 @@ void moveForward() {
     prevRight = countsRight;
   }
   motors.setSpeeds(0, 0);
+}
+
+int doBacktracking(){
+  int possibleWays[3];
+  int possibleWaysSize = sizeof(possibleWays) / sizeof(int);
+  
+  //get possible ways
+
+
+  // TODO: some return function when maze is solved
+  if(1==0){
+    return 1;
+  }
+
+  for(int i = 0; i<possibleWaysSize; i++){
+    if(possibleWays[i]){
+      switch (i) {
+      case 0:
+        turn('l');
+        moveForward();
+        break;
+      case 1:
+        moveForward();
+        break;
+      case 2:
+        turn('r');
+        moveForward();
+        break;
+      }
+
+      int result = doBacktracking();
+      if(result == 1){
+        return 1;
+      }
+
+      switch (i) {
+        case 0:
+          moveForward(false);
+          turn('r');
+          break;
+        case 1:
+          moveForward(false);
+          break;
+        case 2:
+          moveForward(false);
+          turn('l');
+          break;
+      }
+    }
+  }
 }
 
 // Converts x and y components of a vector to a heading in degrees.
@@ -424,4 +463,19 @@ void turnTwo(char dir) {
     display.print(F("   "));
   }
   motors.setSpeeds(0, 0);
+}
+
+void turnResist() {
+  while (true) {
+    turnSensorUpdate();
+
+    int32_t turnSpeed = -(int32_t)turnAngle / (turnAngle1 / 28)
+                        - turnRate / 40;
+
+    display.clear();
+    display.gotoXY(0, 0);
+    display.print(turnSpeed);
+    display.print(F("   "));
+    motors.setSpeeds(-turnSpeed, turnSpeed);
+  }
 }
