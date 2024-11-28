@@ -31,6 +31,8 @@ float Sr = 0.0F;
 int headingDirection = 0;
 bool wallLeft = true;
 bool wallRight = true;
+int currentPos[] = { 1, 1};
+int endPos[] = { 3, 2};
 
 uint16_t speedStraightLeft;  // Maximum motor speed when going straight; variable speed when turning
 uint16_t speedStraightRight;
@@ -89,17 +91,30 @@ void loop() {
     }
   }
 
-
   if (buttonC.isPressed()) {
+    display.clear();
     delay(2000);
     // for (int i = 0; i < inputSizeC; i++) {
     //   handleInput(inputsC[i]);
     //   motors.setSpeeds(0, 0);
     //   delay(500);
     // }
-    moveForward(false);
+    doBacktracking();
+    display.clear();
+    display.gotoXY(0, 0);
+    display.print(currentPos[0]);
+    display.print(" ");
+    display.print(currentPos[1]);
     // turnResist();
   }
+
+
+  // display.clear();
+  // sensor.setChannel(2);
+  // sensor.sample();
+  // display.gotoXY(0, 0);
+  // display.print(sensor.distanceMillimeters);
+  // delay(500);
 }
 
 void handleInput(String input) {
@@ -163,13 +178,6 @@ void turn(char dir) {
       threshPos += 360;
     }
 
-
-
-    display.clear();
-    display.gotoXY(0, 0);
-    display.print(angle);
-    display.print(", ");
-    display.print(headingDirection);
     if (angle <= threshPos && angle >= threshNeg) {
       motors.setSpeeds(0, 0);
       break;
@@ -178,9 +186,11 @@ void turn(char dir) {
 }
 
 void moveForward(bool forward) {
+  wallRight = true;
+  wallLeft = true;
   sensor.setChannel(1);
   sensor.sample();
-  if (sensor.distanceMillimeters < 80) {
+  if (forward && sensor.distanceMillimeters < 80 ) {
     return;
   }
   for (int i = 0; i < 3; i++) {
@@ -192,17 +202,16 @@ void moveForward(bool forward) {
   countsRight = 0;
   prevRight = 0;
   int speed = 80;
-  wallRight = true;
-  wallLeft = true;
+  bool hasSampled = false;
 
   while (true) {
     turnSensorUpdate();
     sensor.nextChannel();
-    if (sensor.isSampleDone()) {
+    if (sensor.isSampleDone() && Sr > 2 ) {
       sensor.readOutputRegs();
       switch (sensor.channelUsed) {
         case 0:
-          if (wallLeft == true && sensor.distanceMillimeters > 200) {
+          if (wallLeft && sensor.distanceMillimeters > 200) {
             wallLeft = false;
           }
           break;
@@ -212,7 +221,7 @@ void moveForward(bool forward) {
           }
           break;
         case 2:
-          if (wallRight == true && sensor.distanceMillimeters > 200) {
+          if (wallRight && sensor.distanceMillimeters > 200) {
             wallRight = false;
           }
           break;
@@ -239,17 +248,6 @@ void moveForward(bool forward) {
     if (turnSpeed > 10) {
       turnSpeed = 10;
     }
-
-    display.clear();
-    display.gotoXY(0, 0);
-    display.print(turnSpeed);
-    display.print(",");
-    display.print(absDiff);
-    display.gotoXY(0, 1);
-    display.print(diff);
-    display.print(",");
-    display.print(angle);
-
 
     if (Sr < 18 && Sr > -18) {
       if (Sr > 5 || Sr < -5) {
@@ -279,37 +277,52 @@ int doBacktracking() {
   int possibleWays[] = { 0, 0, 0 };
   int possibleWaysSize = sizeof(possibleWays) / sizeof(int);
 
+  // end when on endPos
+  if (currentPos[0] == endPos[0] && currentPos[1] == endPos[1] ) {
+    return 1;
+  }
+
   //get possible ways
   sensor.setChannel(1);
   sensor.sample();
   if (sensor.distanceMillimeters > 200) {
     possibleWays[1] = 1;
   }
-  if (wallLeft) {
+  if (!wallLeft) {
     possibleWays[0] = 1;
   }
-  if (wallRight) {
+  if (!wallRight) {
     possibleWays[2] = 1;
   }
 
-  // TODO: some return function when maze is solved
-  if (1 == 0) {
-    return 1;
-  }
+  display.clear();
+  display.gotoXY(0, 0);
+  display.print(currentPos[0]);
+  display.print(" ");
+  display.print(currentPos[1]);
+  display.gotoXY(0, 1);
+  display.print(possibleWays[0]);
+  display.print(" ");
+  display.print(possibleWays[1]);
+  display.print(" ");
+  display.print(possibleWays[2]);
 
   for (int i = 0; i < possibleWaysSize; i++) {
-    if (possibleWays[i]) {
+    if (possibleWays[i] == 1) {
       switch (i) {
         case 0:
           turn('l');
           moveForward();
+          updateCurrentPos(true);
           break;
         case 1:
           moveForward();
+          updateCurrentPos(true);
           break;
         case 2:
           turn('r');
           moveForward();
+          updateCurrentPos(true);
           break;
       }
 
@@ -322,17 +335,54 @@ int doBacktracking() {
         case 0:
           moveForward(false);
           turn('r');
+          updateCurrentPos(false);
           break;
         case 1:
           moveForward(false);
+          updateCurrentPos(false);
           break;
         case 2:
           moveForward(false);
           turn('l');
+          updateCurrentPos(false);
           break;
       }
+
+      display.clear();
+      display.gotoXY(0, 0);
+      display.print(currentPos[0]);
+      display.print(" ");
+      display.print(currentPos[1]);
+      display.gotoXY(0, 1);
+      display.print(possibleWays[0]);
+      display.print(" ");
+      display.print(possibleWays[1]);
+      display.print(" ");
+      display.print(possibleWays[2]);
     }
   }
+  return 0;
+}
+
+void updateCurrentPos(bool movedForward){
+  switch (headingDirection) {
+    case 0:
+      movedForward ? changeCurrentPos(0, 1) : changeCurrentPos(0, -1);
+      break;
+    case 90:
+      movedForward ? changeCurrentPos(1, -1) : changeCurrentPos(1, 1);
+      break;
+    case 180:
+      movedForward ? changeCurrentPos(0, -1) : changeCurrentPos(0, 1);
+      break;
+    case 270:
+      movedForward ? changeCurrentPos(1, 1) : changeCurrentPos(1, -1);
+      break;
+  }
+}
+
+void changeCurrentPos(int field, int change){
+  currentPos[field] = currentPos[field] + change;
 }
 
 // Converts x and y components of a vector to a heading in degrees.
