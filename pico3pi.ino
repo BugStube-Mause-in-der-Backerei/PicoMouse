@@ -35,7 +35,9 @@ int endPos[] = { 3, 2 };
 
 
 // String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "forward", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward" };
-String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "forward", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "turn_right", "forward", "turn_left", "forward", "turn_right", "forward", "forward", "forward" };
+//  = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "forward", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "turn_right", "forward", "turn_left", "forward", "turn_right", "forward", "forward", "forward" };
+String inputs[] = { "forward", "forward", "forward", "forward", "turn_right", "turn_right", "forward", "forward", "forward", "forward", "turn_right", "turn_right" };
+
 int inputSize = sizeof(inputs) / sizeof(String);
 
 // String inputsC[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_right", "forward", "turn_right" };
@@ -44,7 +46,8 @@ int inputSizeC = sizeof(inputsC) / sizeof(String);
 
 
 // method call to be able to define default parameters
-void moveForward(bool forward = true);
+void moveForward(bool forward = true, int count = 1);
+void turn(char dir, int count = 1);
 
 
 void setup() {
@@ -75,10 +78,21 @@ void loop() {
   bumpSensors.read();
   if (buttonA.isPressed()) {
     delay(2000);
-    for (int i = 0; i < inputSize; i++) {
-      handleInput(inputs[i]);
-      motors.setSpeeds(0, 0);
-      delay(100);
+    
+    int count = 1;
+    for (int i = 1; i < inputSize; i++) {
+      if(inputs[i-1] == inputs[i] && i != inputSize-1){
+        count++;
+        continue;
+      } else {
+        if(i == inputSize-1){
+          count++;
+        }
+        handleInput(inputs[i-1], count);
+        count = 1;
+        motors.setSpeeds(0, 0);
+        delay(100);
+      }
     }
   }
 
@@ -98,29 +112,30 @@ void loop() {
   }
 }
 
-void handleInput(String input) {
+
+void handleInput(String input, int count) {
   if (input.equalsIgnoreCase("forward")) {
     Serial.println("moveForward");
-    moveForward();
+    moveForward(true, count);
   } else if (input.equalsIgnoreCase("turn_left")) {
     Serial.println("turn_left");
-    turn('l');
+    turn('l', count);
   } else if (input.equalsIgnoreCase("turn_right")) {
     Serial.println("turn_right");
-    turn('r');
+    turn('r', count);
   }
 }
 
 
-void turn(char dir) {
+void turn(char dir, int count) {
   int turnSpeed = 80;
   int speed = 0;
   if (dir == 'l') {
     motors.setSpeeds(-turnSpeed, turnSpeed);
-    headingDirection += 90;
+    headingDirection += 90 * count;
   } else if (dir == 'r') {
     motors.setSpeeds(turnSpeed, -turnSpeed);
-    headingDirection -= 90;
+    headingDirection -= 90 * count;
   }
 
   if (headingDirection < 0) {
@@ -131,16 +146,14 @@ void turn(char dir) {
 
   while (true) {
     turnSensorUpdate();
-    int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
-    if (angle < 0) {
-      angle += 360;
-    }
+    int32_t angle = getCurrentAngle();
 
     int diff = headingDirection - angle;
     int absDiff = abs(diff);
     if (absDiff > 100) {
       absDiff = 360 - absDiff;
     }
+
     speed = turnSpeed * absDiff / 180;
     speed += 25;
 
@@ -168,11 +181,12 @@ void turn(char dir) {
 }
 
 
-void moveForward(bool forward) {
+void moveForward(bool forward, int count) {
   int speed = defaultSpeed;
   bool hasSampled = false;
   int distanceFront = 80;
   int distanceSide = 200;
+  int driveDistance = 18 * count;
   wallRight = true;
   wallLeft = true;
   sensor.setChannel(1);
@@ -222,12 +236,7 @@ void moveForward(bool forward) {
 
     Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
 
-    int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
-    if (angle < 0) {
-      angle += 360;
-    }
-
-    int diff = headingDirection - angle;
+    int diff = headingDirection - getCurrentAngle();
     int absDiff = abs(diff);
     if (absDiff > 100) {
       absDiff = 360 - absDiff;
@@ -238,9 +247,9 @@ void moveForward(bool forward) {
       turnSpeed = 10;
     }
 
-    if (Sr < 18 && Sr > -18) {
-      if (Sr > 5 || Sr < -5) {
-        speed = 80 - (abs(Sr) * 3);
+    if (Sr < driveDistance && Sr > -driveDistance) {
+      if (Sr > driveDistance - 5 || Sr < -driveDistance + 5) {
+        speed = defaultSpeed - (abs(Sr) * 3);
       }
       if (speed < 25) {
         speed = 25;
@@ -387,6 +396,15 @@ void displayPosition() {
   display.print(currentPos[1]);
 }
 
+
+int32_t getCurrentAngle(){
+  int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
+  if (angle < 0) {
+    angle += 360;
+  }
+
+  return angle;
+}
 
 void turnResist() {
   while (true) {
