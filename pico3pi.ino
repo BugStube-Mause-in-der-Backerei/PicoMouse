@@ -30,8 +30,8 @@ int headingDirection = 0;
 bool wallLeft = true;
 bool wallRight = true;
 int defaultSpeed = 80;
-int currentPos[] = { 1, 1 };
-int endPos[] = { 3, 2 };
+int currentPos[] = { 0, 0 };
+int endPos[] = { 0, 2 };
 
 
 // String inputs[] = { "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward", "forward", "forward", "turn_left", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "forward", "forward", "forward", "turn_right", "forward", "turn_right", "forward", "turn_left", "forward", "turn_left", "forward" };
@@ -185,16 +185,19 @@ void moveForward(bool forward, int count) {
   int speed = defaultSpeed;
   bool hasSampled = false;
   int distanceFront = 80;
-  int distanceSide = 200;
-  int driveDistance = 18 * count;
+  int distanceSide = 220;
+  int driveDistance = 17 * count;
   wallRight = true;
   wallLeft = true;
   sensor.setChannel(1);
-  sensor.sample();
+  sensor.startSample();
+  while(!sensor.isSampleDone()){}
+  sensor.readOutputRegs();
+
   if (forward && sensor.distanceMillimeters < distanceFront) {
     return;
   }
-
+  
   for (int i = 0; i < 3; i++) {
     sensor.setChannel(i);
     sensor.startSample();
@@ -212,6 +215,7 @@ void moveForward(bool forward, int count) {
     // start sample evaluation shortly after moving to avoid detecting an opening at the start
     if (sensor.isSampleDone() && Sr > 2) {
       sensor.readOutputRegs();
+      // recognize wall openings during moving
       switch (sensor.channelUsed) {
         case 0:
           if (wallLeft && sensor.distanceMillimeters > distanceSide) {
@@ -231,17 +235,19 @@ void moveForward(bool forward, int count) {
       }
       sensor.startSample();
     }
-
+    
     countsRight += encoders.getCountsAndResetRight();
-
+    // approximate the driven distance
     Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
 
     int diff = headingDirection - getCurrentAngle();
     int absDiff = abs(diff);
+    // diff shouldn't be negative; edge case: headingDirection = 0 and angle = 350 should be diff 10 and not 350
     if (absDiff > 100) {
       absDiff = 360 - absDiff;
     }
 
+    // turnSpeed shouldn't be greater than 10 as the robot would start to wiggle
     int turnSpeed = speed * absDiff / 20;
     if (turnSpeed > 10) {
       turnSpeed = 10;
@@ -284,17 +290,24 @@ int doBacktracking() {
 
   //get possible ways
   sensor.setChannel(1);
-  sensor.sample();
-  if (sensor.distanceMillimeters > 200) {
-    possibleWays[1] = 1;
+  for(int i = 0; i<3; i++){
+    sensor.startSample();
+    
+    while(!sensor.isSampleDone()){}
+    sensor.readOutputRegs();
+
+    if (sensor.distanceMillimeters > 170) {
+      possibleWays[1] = 1;
+    }
   }
+
   if (!wallLeft) {
     possibleWays[0] = 1;
   }
   if (!wallRight) {
     possibleWays[2] = 1;
   }
-
+  
   display.clear();
   display.gotoXY(0, 0);
   display.print(currentPos[0]);
@@ -331,20 +344,18 @@ int doBacktracking() {
         return 1;
       }
 
+      updateCurrentPos(false);
       switch (i) {
         case 0:
           moveForward(false);
           turn('r');
-          updateCurrentPos(false);
           break;
         case 1:
           moveForward(false);
-          updateCurrentPos(false);
           break;
         case 2:
           moveForward(false);
           turn('l');
-          updateCurrentPos(false);
           break;
       }
 
