@@ -184,9 +184,9 @@ void turn(char dir, int count) {
 void moveForward(bool forward, int count) {
   int speed = defaultSpeed;
   bool hasSampled = false;
-  int distanceFront = 80;
-  int distanceSide = 220;
-  int driveDistance = 17 * count;
+  int distanceFront = 60;
+  int distanceSide = 210;
+  float driveDistance = 17.5F * count;
   wallRight = true;
   wallLeft = true;
   sensor.setChannel(1);
@@ -213,7 +213,7 @@ void moveForward(bool forward, int count) {
 
     sensor.nextChannel();
     // start sample evaluation shortly after moving to avoid detecting an opening at the start
-    if (sensor.isSampleDone() && Sr > 2) {
+    if (sensor.isSampleDone() && Sr >= 2) {
       sensor.readOutputRegs();
       // recognize wall openings during moving
       switch (sensor.channelUsed) {
@@ -236,6 +236,7 @@ void moveForward(bool forward, int count) {
       sensor.startSample();
     }
     
+    
     countsRight += encoders.getCountsAndResetRight();
     // approximate the driven distance
     Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
@@ -253,13 +254,14 @@ void moveForward(bool forward, int count) {
       turnSpeed = 10;
     }
 
-    if (Sr < driveDistance && Sr > -driveDistance) {
+    if (Sr <= driveDistance && Sr >= -driveDistance) {
       if (Sr > driveDistance - 5 || Sr < -driveDistance + 5) {
         speed = defaultSpeed - (abs(Sr) * 3);
       }
       if (speed < 25) {
         speed = 25;
       }
+      
       if (diff > 0 || diff < -270) {
         forward ? motors.setSpeeds(speed, speed + turnSpeed) : motors.setSpeeds(-speed - turnSpeed, -speed);
       } else if (diff < 0) {
@@ -290,7 +292,7 @@ int doBacktracking() {
 
   //get possible ways
   sensor.setChannel(1);
-  for(int i = 0; i<3; i++){
+  for(int i = 0; i<5; i++){
     sensor.startSample();
     
     while(!sensor.isSampleDone()){}
