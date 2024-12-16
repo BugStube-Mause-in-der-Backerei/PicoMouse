@@ -106,7 +106,7 @@ void turnSensorSetup()
 
   // Calibrate the gyro.
   int32_t total = 0;
-  for (uint16_t i = 0; i < 1024; i++)
+  for (uint16_t i = 0; i < 2048; i++)
   {
     // Wait for new data to be available, then read it.
     while(!imu.gyroDataReady()) {}
@@ -116,7 +116,7 @@ void turnSensorSetup()
     total += imu.g.z;
   }
   ledYellow(0);
-  gyroOffset = total / 1024;
+  gyroOffset = total / 2048;
 
   // Display the angle (in degrees from -180 to 180) until the
   // user presses A.
