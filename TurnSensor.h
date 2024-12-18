@@ -91,12 +91,10 @@ The digital zero-rate level of the gyro can be as high as
 that. */
 void turnSensorSetup()
 {
+  Wire.begin();
   imu.init();
   imu.enableDefault();
   imu.configureForTurnSensing();
-
-  display.clear();
-  display.print(F("Gyro cal"));
 
   // Turn on the yellow LED in case the display is not available.
   ledYellow(1);
@@ -120,7 +118,6 @@ void turnSensorSetup()
 
   // Display the angle (in degrees from -180 to 180) until the
   // user presses A.
-  display.clear();
   turnSensorReset();
   // while (!buttonA.getSingleDebouncedRelease())
   // {
