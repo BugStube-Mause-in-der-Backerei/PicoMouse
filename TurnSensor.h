@@ -119,12 +119,4 @@ void turnSensorSetup()
   // Display the angle (in degrees from -180 to 180) until the
   // user presses A.
   turnSensorReset();
-  // while (!buttonA.getSingleDebouncedRelease())
-  // {
-  //   turnSensorUpdate();
-  //   display.gotoXY(0, 0);
-  //   display.print((((int32_t)turnAngle >> 16) * 360) >> 16);
-  //   display.print(F("   "));
-  // }
-  // display.clear();
 }

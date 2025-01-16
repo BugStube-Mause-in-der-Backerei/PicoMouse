@@ -24,27 +24,31 @@ RGBLEDs leds;
 IMU imu;
 
 struct Wall {
-  int x1, y1, x2, y2;  // Start- und Endpunkte der Wand
+  // start and endpoints of the wall
+  int x1, y1, x2, y2;
   Wall(int startX, int startY, int endX, int endY)
     : x1(startX), y1(startY), x2(endX), y2(endY) {}
 };
 
 #include "TurnSensor.h"
 
-long countsRight = 0;
-long prevRight = 0;
+const int WHEEL_CIRCUMFERENZCE = 10.0531;
 const int CLICKS_PER_ROTATION = 12;
 const float GEAR_RATIO = 29.86F;
-const int WHEEL_CIRCUMFERENZCE = 10.0531;
-float Sr = 0.0F;
-int headingDirection = 0;
 bool wallLeft = true;
 bool wallRight = true;
 bool startingWall = false;
+long countsRight = 0;
+long prevRight = 0;
+float distanceRight = 0.0F;
+int headingDirection = 0;
 int defaultSpeed = 80;
-int currentPos[] = { 4, 4 };
-int endPos[] = { 3, 0 };
+int currentPos[] = { 0, 0 };
+int endPos[] = { 2, 1 };
 String endProgramm = "";
+
+String inputsC[] = { "forward", "forward", "forward", "forward", "turn_right", "turn_right", "forward", "forward", "forward", "forward", "turn_right", "turn_right" };
+int inputSizeC = sizeof(inputsC) / sizeof(String);
 
 int labyrinth[5][5][4] = {
   { { -1, -1, -1, -1 }, { -1, -1, -1, -1 }, { -1, -1, -1, -1 }, { -1, -1, -1, -1 }, { -1, -1, -1, -1 } },
@@ -95,18 +99,37 @@ void loop() {
   motors.setSpeeds(0, 0);
   bumpSensors.read();
 
+  if (buttonA.isPressed()) {
+    endProgramm = "discover";
+    delay(2000);
+
+    doBacktracking();
+  }
+
   if (buttonC.isPressed()) {
     endProgramm = "backtracking";
     delay(2000);
 
     doBacktracking();
-  }
-  
-  if (buttonA.isPressed()) {
-    endProgramm = "erkunden";
-    delay(2000);
 
-    doBacktracking();
+    // for (int i = 0; i < inputSizeC; i++) {
+    //   handleInput(inputsC[i]);
+    //   motors.setSpeeds(0, 0);
+    //   delay(500);
+    // }
+  }
+}
+
+void handleInput(String input) {
+  if (input.equalsIgnoreCase("forward")) {
+    Serial.println("moveForward");
+    moveForward(true);
+  } else if (input.equalsIgnoreCase("turn_left")) {
+    Serial.println("turn_left");
+    turn('l');
+  } else if (input.equalsIgnoreCase("turn_right")) {
+    Serial.println("turn_right");
+    turn('r');
   }
 }
 
@@ -115,7 +138,7 @@ bool evaluateEnd() {
     buzzer.play("f32");
     return (currentPos[0] == endPos[0] && currentPos[1] == endPos[1]);
   }
-  if (endProgramm == "erkunden") {
+  if (endProgramm == "discover") {
     buzzer.play("f32");
     return allFieldsFilled(labyrinthTracker);
   }
@@ -123,30 +146,31 @@ bool evaluateEnd() {
 
 
 void analyzeMaze(int maze[5][5][4], int width, int height, std::vector<Wall> &walls) {
-  const int cellSize = 11;  // Größe jedes Kästchens in Pixel
+  // size of each cell in pixel
+  const int cellSize = 11;
 
-  // Horizontale Wände (Norden und Süden)
+  // north and south walls
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
-      // Nordwand
+      // north
       if (maze[y][x][0] == 0) {
         walls.push_back(Wall(x * cellSize, y * cellSize, (x + 1) * cellSize, y * cellSize));
       }
-      // Südwand
+      // south
       if (maze[y][x][2] == 0) {
         walls.push_back(Wall(x * cellSize, (y + 1) * cellSize, (x + 1) * cellSize, (y + 1) * cellSize));
       }
     }
   }
 
-  // Vertikale Wände (Westen und Osten)
+  // west and east walls
   for (int x = 0; x < width; x++) {
     for (int y = 0; y < height; y++) {
-      // Westwand
+      // west
       if (maze[y][x][3] == 0) {
         walls.push_back(Wall(x * cellSize, y * cellSize, x * cellSize, (y + 1) * cellSize));
       }
-      // Ostwand
+      // east
       if (maze[y][x][1] == 0) {
         walls.push_back(Wall((x + 1) * cellSize, y * cellSize, (x + 1) * cellSize, (y + 1) * cellSize));
       }
@@ -154,51 +178,37 @@ void analyzeMaze(int maze[5][5][4], int width, int height, std::vector<Wall> &wa
   }
 }
 
-String getDirection() {
-  int32_t angle = (((int32_t)turnAngle >> 16) * 360) >> 16;
-  String dir;
-  if (angle < 45 && angle > -45) {
-    dir = "north";
-  } else if (angle > -130 && angle < -45) {
-    dir = "east";
-  } else if (angle < -130 || angle > 130) {
-    dir = "south";
-  } else if (angle < 130 && angle > 45) {
-    dir = "west";
-  }
-  return dir;
-}
 
 void addWalls(int possibleWays[]) {
   turnSensorUpdate();
-  String cur_direction = getDirection();
   // {N, O, S, W}
-  if (cur_direction == "north") {
-    labyrinth[currentPos[0]][currentPos[1]][0] = -possibleWays[1];
-    labyrinth[currentPos[0]][currentPos[1]][1] = -possibleWays[2];
-    // keine hintere süd wand, deswegen labyrinth[currentPos[0]][currentPos[1]][2] irrelevant
-    labyrinth[currentPos[0]][currentPos[1]][3] = -possibleWays[0];
-  }
-  if (cur_direction == "east") {
-    labyrinth[currentPos[0]][currentPos[1]][0] = -possibleWays[0];
-    labyrinth[currentPos[0]][currentPos[1]][1] = -possibleWays[1];
-    labyrinth[currentPos[0]][currentPos[1]][2] = -possibleWays[2];
-    // keine hintere west wand, deswegen labyrinth[currentPos[0]][currentPos[1]][3] irrelevant
-  }
-  if (cur_direction == "south") {
-    // keine hintere nord wand, deswegen labyrinth[currentPos[0]][currentPos[1]][0] irrelevant
-    labyrinth[currentPos[0]][currentPos[1]][1] = -possibleWays[0];
+  if (headingDirection == 0) {
     labyrinth[currentPos[0]][currentPos[1]][2] = -possibleWays[1];
     labyrinth[currentPos[0]][currentPos[1]][3] = -possibleWays[2];
+    // wall to the south behind robot, thats why labyrinth[currentPos[0]][currentPos[1]][2] is irrelevant
+    labyrinth[currentPos[0]][currentPos[1]][1] = -possibleWays[0];
   }
-  if (cur_direction == "west") {
-    labyrinth[currentPos[0]][currentPos[1]][0] = -possibleWays[2];
-    // keine hintere ost wand, deswegen labyrinth[currentPos[0]][currentPos[1]][1] irrelevant
+  if (headingDirection == 270) {
     labyrinth[currentPos[0]][currentPos[1]][2] = -possibleWays[0];
     labyrinth[currentPos[0]][currentPos[1]][3] = -possibleWays[1];
+    labyrinth[currentPos[0]][currentPos[1]][1] = -possibleWays[2];
+    // wall to the west behind robot, thats why [currentPos[0]][currentPos[1]][3] is irrelevant
+  }
+  if (headingDirection == 180) {
+    // wall to the north behind robot, thats why labyrinth[currentPos[0]][currentPos[1]][0] is irrelevant
+    labyrinth[currentPos[0]][currentPos[1]][3] = -possibleWays[0];
+    labyrinth[currentPos[0]][currentPos[1]][0] = -possibleWays[1];
+    labyrinth[currentPos[0]][currentPos[1]][1] = -possibleWays[2];
+  }
+  if (headingDirection == 90) {
+    labyrinth[currentPos[0]][currentPos[1]][2] = -possibleWays[2];
+    // wall to the east behind robot, thats why labyrinth[currentPos[0]][currentPos[1]][1] is irrelevant
+    labyrinth[currentPos[0]][currentPos[1]][0] = -possibleWays[0];
+    labyrinth[currentPos[0]][currentPos[1]][1] = -possibleWays[1];
   }
   labyrinthTracker[currentPos[0]][currentPos[1]] = true;
 }
+
 
 void showWalls() {
   u8g2.firstPage();
@@ -207,14 +217,12 @@ void showWalls() {
     int width = 5;
     int height = 5;
 
-    // Liste der Wände
+    // list of walls
     std::vector<Wall> walls;
 
-    // Labyrinth analysieren
     analyzeMaze(labyrinth, width, height, walls);
 
-    // Ergebnis ausgeben (z. B. über die serielle Konsole)
-    Serial.println("blubb");
+    // print results
     for (const Wall &wall : walls) {
       u8g2.drawLine(wall.x1, wall.y1, wall.x2, wall.y2);
       Serial.print("Wall: (");
@@ -288,11 +296,13 @@ bool allFieldsFilled(bool labyrinth[5][5]) {
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j < 5; j++) {
       if (labyrinth[i][j] == false) {
-        return false;  // Ein Feld ist -1
+        // at least one field is -1
+        return false;
       }
     }
   }
-  return true;  // Alle Felder sind != -1
+  // all fields != -1
+  return true;
 }
 
 void moveForward(bool forward, int count) {
@@ -319,7 +329,7 @@ void moveForward(bool forward, int count) {
     sensor.startSample();
   }
 
-  Sr = 0.0F;
+  distanceRight = 0.0F;
   countsRight = encoders.getCountsAndResetRight();
   countsRight = 0;
   prevRight = 0;
@@ -329,7 +339,7 @@ void moveForward(bool forward, int count) {
 
     sensor.nextChannel();
     // start sample evaluation shortly after moving to avoid detecting an opening at the start
-    if (sensor.isSampleDone() && Sr >= 2) {
+    if (sensor.isSampleDone() && distanceRight >= 2) {
       sensor.readOutputRegs();
       int distanceMM = sensor.distanceMillimeters;
       // recognize wall openings during moving
@@ -366,7 +376,7 @@ void moveForward(bool forward, int count) {
 
     countsRight += encoders.getCountsAndResetRight();
     // approximate the driven distance
-    Sr += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
+    distanceRight += ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENZCE);
 
     int diff = headingDirection - getCurrentAngle();
     int absDiff = abs(diff);
@@ -383,9 +393,9 @@ void moveForward(bool forward, int count) {
       turnSpeed = 0;
     }
 
-    if (Sr <= driveDistance && Sr >= -driveDistance) {
-      if (Sr > driveDistance - 5 || Sr < -driveDistance + 5) {
-        speed = defaultSpeed - (abs(Sr) * 3);
+    if (distanceRight <= driveDistance && distanceRight >= -driveDistance) {
+      if (distanceRight > driveDistance - 5 || distanceRight < -driveDistance + 5) {
+        speed = defaultSpeed - (abs(distanceRight) * 3);
       }
       if (speed < 25) {
         speed = 25;
@@ -417,7 +427,7 @@ int doBacktracking() {
   bool programmEnded = evaluateEnd();
   // end when on endPos
   if (programmEnded) {
-    //get possible ways
+    // get possible ways
     sensor.setChannel(1);
     for (int i = 0; i < 5; i++) {
       sensor.startSample();
@@ -462,7 +472,7 @@ int doBacktracking() {
   }
 
   if (startingWall == false) {
-    labyrinth[currentPos[0]][currentPos[1]][2] = 0;
+    labyrinth[currentPos[0]][currentPos[1]][0] = 0;
     startingWall = true;
   }
   addWalls(possibleWays);
@@ -514,16 +524,16 @@ int doBacktracking() {
 void updateCurrentPos(bool movedForward) {
   switch (headingDirection) {
     case 0:
-      movedForward ? changeCurrentPos(0, -1) : changeCurrentPos(0, 1);
-      break;
-    case 90:
-      movedForward ? changeCurrentPos(1, -1) : changeCurrentPos(1, 1);
-      break;
-    case 180:
       movedForward ? changeCurrentPos(0, 1) : changeCurrentPos(0, -1);
       break;
-    case 270:
+    case 90:
       movedForward ? changeCurrentPos(1, 1) : changeCurrentPos(1, -1);
+      break;
+    case 180:
+      movedForward ? changeCurrentPos(0, -1) : changeCurrentPos(0, 1);
+      break;
+    case 270:
+      movedForward ? changeCurrentPos(1, -1) : changeCurrentPos(1, 1);
       break;
   }
 }
